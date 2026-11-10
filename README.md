@@ -54,6 +54,15 @@ The audit does not call a model. It reports counts of admitted, stale, null and 
 
 For an evidence sensitivity check, keep the question and conditions unchanged and replace the comparison's `condition` and `value` with `omit_features`. Use a list of retrieved feature keys, or `"all"` for an empty-evidence control. The report states how many profiles were affected. A changed choice shows model sensitivity to the removed input in that run, not an effect on a real customer or proof the explanation is correct. See [evidence memory and validation](docs/evidence-memory.md) for the design, example signals, and validation protocol.
 
+### Check choice stability before interpreting a result
+
+```text
+python demo.py --stress --model your-installed-model:tag
+product-rehearsal stress company_catalog.json examples/choice_stress_en.json --model your-installed-model:tag
+```
+
+`stress` makes three independent calls per profile: the reference, an identical repeat, and a version with only choice order or question wording changed. It reports both switch counts on the same fully matched profiles, including breakdowns by segment and failures by arm. Add `--include-replies` for local review. See [choice design and validation](docs/choice-context.md) for the protocol and marketing examples. The output diagnoses a simulator's sensitivity; it is not a measure of customer persuasion or conversion uplift.
+
 ## Connect your company
 
 1. Give dedicated read-only accounts access to approved aggregate feature views. Install the required driver extras with `python -m pip install '.[clickhouse]'`, `python -m pip install '.[oracle]'`, or `python -m pip install '.[databases]'` for both. Supply credentials via your secret manager at process start. ClickHouse uses `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`, `CLICKHOUSE_USERNAME` (or `CLICKHOUSE_USER`), `CLICKHOUSE_PASSWORD`, `CLICKHOUSE_SECURE` (TLS on by default). Oracle uses `ORACLE_HOST`, `ORACLE_PORT`, `ORACLE_SERVICE_NAME`, `ORACLE_USER`, `ORACLE_PASSWORD`. Do not put credentials in the mapping file.

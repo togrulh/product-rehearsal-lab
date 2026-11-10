@@ -8,6 +8,7 @@ from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from hashlib import sha256
+from itertools import permutations
 import json
 import math
 import os
@@ -392,17 +393,21 @@ def run_panel(panel, scenario, voice, *, choices=None):
     return {'mode':'simulation', 'completed_agents':complete, 'requested_turns_per_agent':len(turns), 'agents':agents}
 
 
+def validate_choices(choices):
+    if not isinstance(choices, dict) or not 3 <= len(choices) <= 8 or 'unsure' not in choices or any(
+        not isinstance(key, str) or not CODE.fullmatch(key) or not isinstance(label, str) or not 1 <= len(label.strip()) <= 120
+        for key, label in choices.items()
+    ) or len({label.strip().casefold() for label in choices.values()}) != len(choices):
+        raise LabError('invalid_comparison_choices')
+
+
 def comparison_scenarios(scenario):
     turns = read_scenario(scenario)
     spec = scenario.get('comparison')
     if len(turns) != 1 or not isinstance(spec, dict) or set(spec) not in ({'condition', 'value', 'choices'}, {'omit_features', 'choices'}):
         raise LabError('invalid_comparison')
     baseline, choices = turns[0][1], spec['choices']
-    if not isinstance(choices, dict) or not 3 <= len(choices) <= 8 or 'unsure' not in choices or any(
-        not isinstance(key, str) or not CODE.fullmatch(key) or not isinstance(label, str) or not 1 <= len(label.strip()) <= 120
-        for key, label in choices.items()
-    ) or len({label.strip().casefold() for label in choices.values()}) != len(choices):
-        raise LabError('invalid_comparison_choices')
+    validate_choices(choices)
     fixed = {'language': scenario['language'], 'question': scenario['question']}
     if 'omit_features' in spec:
         omit = spec['omit_features']
@@ -477,6 +482,71 @@ def compare_panel(panel, scenario, voice, *, include_replies=True):
     return report
 
 
+STRESS_ARMS = ('reference', 'repeat', 'perturbed')
+STRESS_ORDERS = tuple(permutations(STRESS_ARMS))
+
+
+def stress_scenarios(scenario):
+    turns, spec = read_scenario(scenario), scenario.get('stress_test')
+    if len(turns) != 1 or 'comparison' in scenario or not isinstance(spec, dict):
+        raise LabError('invalid_stress_test')
+    kind = spec.get('kind')
+    if not ((kind == 'order' and set(spec) == {'kind', 'choices'}) or
+            (kind == 'framing' and set(spec) == {'kind', 'choices', 'question'})):
+        raise LabError('invalid_stress_test')
+    choices = spec['choices']
+    validate_choices(choices)
+    reference = {'language': scenario['language'], 'question': turns[0][0], 'conditions': turns[0][1].copy()}
+    variant = {**reference, 'question': spec['question']} if kind == 'framing' else reference
+    if kind == 'framing':
+        read_scenario(variant)
+        if ' '.join(variant['question'].split()).casefold() == ' '.join(reference['question'].split()).casefold():
+            raise LabError('unchanged_stress_framing')
+    return reference, variant, kind, choices
+
+
+def stress_summary(trials):
+    coverage = {'eligible': len(trials)}
+    failure_reasons = {}
+    for arm in STRESS_ARMS:
+        failures = Counter(trial[arm]['status'] for trial in trials if trial[arm]['status'] != 'ok')
+        failure_reasons[arm] = dict(sorted(failures.items()))
+        coverage[f'{arm}_valid'] = len(trials) - sum(failures.values())
+    matched = [trial for trial in trials if all(trial[arm]['status'] == 'ok' for arm in STRESS_ARMS)]
+    n = coverage['matched'] = len(matched)
+    repeat = sum(trial['reference']['choice'] != trial['repeat']['choice'] for trial in matched)
+    perturbed = sum(trial['reference']['choice'] != trial['perturbed']['choice'] for trial in matched)
+    return {'coverage': coverage, 'failure_reasons': failure_reasons,
+            'repeat_switches': repeat, 'perturbation_switches': perturbed,
+            'excess_switch_percentage_points': round(100 * (perturbed - repeat) / n, 6) if n else None}
+
+
+def stress_panel(panel, scenario, voice, *, include_replies=False):
+    reference, variant, kind, choices = stress_scenarios(scenario)
+    options = [key for key in choices if key != 'unsure']
+    trials, segments = [], defaultdict(list)
+    for index, persona in enumerate(panel):
+        # Across a full block, every call order sees every reference rotation.
+        block, order_index = divmod(index, len(STRESS_ORDERS))
+        offset = (block + order_index) % len(options)
+        rotation = options[offset:] + options[:offset]
+        perturbed = rotation[::-1] if kind == 'order' else rotation
+        trial = {'agent': persona['agent'], 'segment': persona['segment']}
+        for arm in STRESS_ORDERS[order_index]:
+            order = (perturbed if arm == 'perturbed' else rotation) + ['unsure']
+            result = run_panel([deepcopy(persona)], variant if arm == 'perturbed' else reference, voice,
+                               choices={key: choices[key] for key in order})
+            trial[arm] = result['agents'][0]['turns'][0]
+        trials.append(trial)
+        segments[persona['segment']].append(trial)
+    report = {'mode': 'choice_stress', 'stress_test': {'kind': kind, 'choices': choices.copy()},
+              **stress_summary(trials),
+              'by_segment': {segment: stress_summary(group) for segment, group in sorted(segments.items())}}
+    if include_replies:
+        report['trials'] = trials
+    return report
+
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -517,7 +587,7 @@ class OllamaVoice:
         choice_labels = payload.get('choices')
         choice_instruction = ''
         if choice_labels is not None:
-            schema['properties']['choice'] = {'type': 'string', 'enum': list(choice_labels)}
+            schema['properties']['choice'] = {'type': 'string', 'enum': sorted(choice_labels)}
             schema['required'].append('choice')
             choice_instruction = ' Return one choice key from choices, and make the answer consistent with that choice. Use unsure if you cannot choose without inventing a fact.'
         result = self.request('/api/chat', {'model':self.model, 'stream':False, 'think':False, 'keep_alive':'2m', 'format':schema, 'options':{'temperature':0 if choice_labels is not None else 0.25,'num_predict':350,'num_ctx':8192}, 'messages':[
@@ -538,23 +608,27 @@ def enable_utf8_stdout():
 def main():
     enable_utf8_stdout()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['plan','discover','probe','audit','run','compare'])
+    parser.add_argument('command', choices=['plan','discover','probe','audit','run','compare','stress'])
     parser.add_argument('catalog', type=Path)
     parser.add_argument('scenario', type=Path)
     parser.add_argument('--model')
-    parser.add_argument('--include-replies', action='store_true', help='Include per-agent replies in a comparison (local review only)')
+    parser.add_argument('--include-replies', action='store_true', help='Include per-agent replies in compare or stress (local review only)')
     parser.add_argument('--endpoint', default='http://127.0.0.1:11434')
     args = parser.parse_args()
     try:
         scenario = json.loads(args.scenario.read_text(encoding='utf-8'))
         lab = Lab(load_catalog(args.catalog))
         read_scenario(scenario)
+        if args.command == 'stress' or 'stress_test' in scenario:
+            stress_scenarios(scenario)
+            if args.command in {'run', 'compare'}:
+                raise LabError('use_stress_for_stress_test')
         if args.command == 'compare' or 'comparison' in scenario:
             comparison_scenarios(scenario)
         if args.command == 'run' and 'comparison' in scenario:
             raise LabError('use_compare_for_comparison')
-        if args.include_replies and args.command != 'compare':
-            raise LabError('include_replies_requires_compare')
+        if args.include_replies and args.command not in {'compare', 'stress'}:
+            raise LabError('include_replies_requires_compare_or_stress')
         plan = lab.plan(scenario['question'], scenario.get('topic'))
         if args.command == 'discover':
             plan['catalog_candidates'] = discover_sources(lab.catalog, plan)
@@ -562,7 +636,7 @@ def main():
             for key in plan['sources']:
                 read_rows(lab.catalog['sources'][key], utc('2000-01-01'), 1, probe=True)
             plan['schema_probe'] = 'pass'
-        if args.command not in {'audit', 'run', 'compare'}:
+        if args.command not in {'audit', 'run', 'compare', 'stress'}:
             print(json.dumps(plan, ensure_ascii=False, indent=2))
             return 0
         cutoff = utc(scenario['as_of']).isoformat()
@@ -576,15 +650,18 @@ def main():
         panel, evidence = lab.panel_with_audit(plan, cutoff, scenario.get('panel_size', 12), scenario.get('seed', 1))
         if not panel:
             raise LabError('empty_eligible_panel_run_audit_for_coverage')
-        result = (compare_panel(panel, scenario, voice, include_replies=args.include_replies)
-                  if args.command == 'compare' else run_panel(panel, scenario, voice))
+        if args.command in {'compare', 'stress'}:
+            runner = stress_panel if args.command == 'stress' else compare_panel
+            result = runner(panel, scenario, voice, include_replies=args.include_replies)
+        else:
+            result = run_panel(panel, scenario, voice)
         if voice.verify() != digest:
             raise LabError('local_model_changed')
         result.update({'plan':plan, 'as_of':cutoff, 'model':voice.model, 'digest':digest, 'evidence': evidence})
-        if args.command == 'compare':
+        if args.command in {'compare', 'stress'}:
             result.update({'requested_panel_size': scenario.get('panel_size', 12), 'panel_seed': scenario.get('seed', 1)})
         print(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False))
-        completed = result['coverage']['matched'] if args.command == 'compare' else result['completed_agents']
+        completed = result['coverage']['matched'] if args.command in {'compare', 'stress'} else result['completed_agents']
         return 0 if completed == len(panel) else 2
     except (LabError, ValueError, TypeError, KeyError, OSError) as exc:
         error = str(exc) if isinstance(exc, LabError) else 'invalid_or_unavailable_input'

@@ -1,0 +1,16 @@
+{
+  "language": "en",
+  "as_of": "2026-02-01T00:00:00Z",
+  "panel_size": 8,
+  "seed": 17,
+  "question": "Given the signup screen below, what would you do next?",
+  "conditions": {"progress_visible": true, "support_button": false},
+  "stress_test": {
+    "kind": "order",
+    "choices": {
+      "continue": "Continue signup now",
+      "pause": "Pause and come back later",
+      "unsure": "Not enough information to choose"
+    }
+  }
+}

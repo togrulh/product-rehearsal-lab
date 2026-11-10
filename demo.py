@@ -6,10 +6,10 @@ from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
 
-from rehearsal import Lab, OllamaVoice, compare_panel, enable_utf8_stdout, load_catalog, run_panel
+from rehearsal import Lab, OllamaVoice, compare_panel, enable_utf8_stdout, load_catalog, run_panel, stress_panel
 
 
-def run(model, topic, compare=False, audit=False, memory_check=False):
+def run(model, topic, compare=False, audit=False, memory_check=False, stress=False):
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         catalog = {'segments':['digital_first','help_seeker'], 'topics':{
@@ -38,7 +38,8 @@ def run(model, topic, compare=False, audit=False, memory_check=False):
             'onboarding':{'language':'en','question':'If the signup screen showed you the next step, how would you react?', 'conditions':{'next_step_visible':True,'human_help':False}, 'followups':[{'question':'Would a help button on the same screen change your mind?', 'changes':{'human_help':True}}]},
             'loyalty':{'language':'en','question':'Which loyalty reward would you choose: a discount on purchases or free delivery?', 'conditions':{'offer_a':'purchase discount','offer_b':'free delivery'}},
         }
-        example = 'evidence_sensitivity_en.json' if memory_check else 'comparison_en.json' if compare else None
+        example = ('choice_stress_en.json' if stress else 'evidence_sensitivity_en.json' if memory_check
+                   else 'comparison_en.json' if compare else None)
         scenario = (json.loads(Path(__file__).with_name('examples').joinpath(example).read_text(encoding='utf-8'))
                     if example else scenarios[topic])
         lab = Lab(load_catalog(catalog_path))
@@ -48,7 +49,12 @@ def run(model, topic, compare=False, audit=False, memory_check=False):
             return {'mode':'evidence_audit','plan':plan,'as_of':'2026-02-01T00:00:00+00:00','evidence':evidence}
         voice = OllamaVoice(model)
         digest = voice.verify()
-        result = compare_panel(panel, scenario, voice) if compare or memory_check else run_panel(panel, scenario, voice)
+        if stress:
+            result = stress_panel(panel, scenario, voice, include_replies=True)
+        elif compare or memory_check:
+            result = compare_panel(panel, scenario, voice)
+        else:
+            result = run_panel(panel, scenario, voice)
         if voice.verify() != digest:
             raise RuntimeError('Model changed during demo')
         return {**result,'plan':plan,'model':model,'digest':digest,'evidence':evidence}
@@ -63,13 +69,14 @@ if __name__ == '__main__':
     modes.add_argument('--compare', action='store_true', help='Compare two independent signup conditions')
     modes.add_argument('--audit', action='store_true', help='Report fixture evidence coverage without a model')
     modes.add_argument('--memory-check', action='store_true', help='Compare replies with and without a signup fact')
+    modes.add_argument('--stress', action='store_true', help='Check choice order against a repeat control')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
-    if (args.compare or args.memory_check) and args.topic != 'onboarding':
-        parser.error('--compare and --memory-check require the onboarding topic')
+    if (args.compare or args.memory_check or args.stress) and args.topic != 'onboarding':
+        parser.error('--compare, --memory-check and --stress require the onboarding topic')
     if not args.audit and not args.model:
         parser.error('--model is required unless --audit is set')
-    result = run(args.model, args.topic, args.compare, args.audit, args.memory_check)
+    result = run(args.model, args.topic, args.compare, args.audit, args.memory_check, args.stress)
     body = json.dumps(result,ensure_ascii=False,indent=2)
     if args.output:
         with args.output.open('x',encoding='utf-8') as handle:
@@ -78,6 +85,6 @@ if __name__ == '__main__':
         print(body)
     if args.audit:
         raise SystemExit(0)
-    complete = (result['coverage']['matched'] == result['coverage']['eligible'] if args.compare or args.memory_check
+    complete = (result['coverage']['matched'] == result['coverage']['eligible'] if args.compare or args.memory_check or args.stress
                 else result['completed_agents'] == len(result['agents']))
     raise SystemExit(0 if complete else 2)
