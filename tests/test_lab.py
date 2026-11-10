@@ -1,11 +1,36 @@
 import json
 from contextlib import closing
+import os
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from rehearsal import Lab, LabError, OllamaVoice, discover_sources, load_catalog, run_panel
+
+
+class DemoOutputTests(unittest.TestCase):
+    def test_az_demo_stdout_remains_utf8_under_legacy_code_page(self):
+        code = r'''
+import rehearsal, runpy, sys
+class LocalModelDouble:
+    def __init__(self, model):
+        assert model == 'test:local'
+    def verify(self):
+        return 'a' * 64
+    def __call__(self, payload):
+        assert payload['language'] == 'az'
+        return {'answer':'\u018fla, n\u00f6vb\u0259ti add\u0131ma ke\u00e7\u0259r\u0259m.', 'evidence_keys':[]}
+rehearsal.OllamaVoice = LocalModelDouble
+sys.argv = ['demo.py','--model','test:local']
+runpy.run_path('demo.py', run_name='__main__')
+'''
+        run = subprocess.run([sys.executable,'-c',code], cwd=Path(__file__).resolve().parents[1], env={**os.environ,'PYTHONIOENCODING':'cp1252'}, capture_output=True, timeout=30)
+        self.assertEqual(run.returncode,0,run.stderr.decode('ascii',errors='backslashreplace'))
+        report = json.loads(run.stdout.decode('utf-8'))
+        self.assertEqual(report['agents'][0]['turns'][0]['answer'],'Əla, növbəti addıma keçərəm.')
 
 
 class LabTests(unittest.TestCase):

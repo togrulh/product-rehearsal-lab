@@ -349,7 +349,14 @@ class OllamaVoice:
         return json.loads(result['message']['content'])
 
 
+def enable_utf8_stdout():
+    # Redirected Windows stdout can default to a legacy code page.
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+
+
 def main():
+    enable_utf8_stdout()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['plan','discover','probe','run'])
     parser.add_argument('catalog', type=Path)

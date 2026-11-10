@@ -6,7 +6,7 @@ from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
 
-from rehearsal import Lab, OllamaVoice, load_catalog, run_panel
+from rehearsal import Lab, OllamaVoice, enable_utf8_stdout, load_catalog, run_panel
 
 
 def run(model, topic):
@@ -46,6 +46,7 @@ def run(model, topic):
 
 
 if __name__ == '__main__':
+    enable_utf8_stdout()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--model', required=True)
     parser.add_argument('--topic', choices=['onboarding','loyalty'], default='onboarding')
