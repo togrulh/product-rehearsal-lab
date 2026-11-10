@@ -25,6 +25,22 @@ python -m unittest discover -s tests -v
 
 Both demos use English. `onboarding` exercises two sources and a follow-up changing just one condition. `loyalty` exercises a different pair of sources. `--output new-file.json` writes a UTF-8 demo receipt without overwriting anything. All demo rows are invented independently of any institution.
 
+### Compare two variants on the same panel
+
+```text
+python demo.py --compare --model your-installed-model:tag
+```
+
+Unlike a follow-up, `compare` asks the **same** question independently in both conditions. It builds the panel once, changes exactly one condition, and does not show either answer to the other invocation. The JSON report shows the sampled panel size (`eligible`), valid replies per variant, failure counts by reason, fully matched pairs, and how choices moved, overall and by segment. `unsure` is a valid choice; missing or invalid replies are not. Matched-choice counts use the same denominator for both sides, and incomplete runs exit with status 2 while still reporting coverage.
+
+For approved data sources, edit [the comparison scenario](examples/comparison_en.json), then run:
+
+```text
+product-rehearsal compare company_catalog.json examples/comparison_en.json --model your-installed-model:tag
+```
+
+Define a neutral question, one existing condition to change, and 3–8 distinct choice labels including `unsure`. Comparison scenarios cannot contain follow-ups. The CLI returns counts by default; add `--include-replies` for local inspection of synthetic replies and their cited feature keys. This is a sensitivity check on simulated choices, not a live A/B test or an estimate of customer behavior. Differences can reflect model variation, and a valid choice code does not certify its explanation.
+
 ## Connect your company
 
 1. Give dedicated read-only accounts access to approved aggregate feature views. Install the required driver extras with `python -m pip install '.[clickhouse]'`, `python -m pip install '.[oracle]'`, or `python -m pip install '.[databases]'` for both. Supply credentials via your secret manager at process start. ClickHouse uses `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`, `CLICKHOUSE_USERNAME` (or `CLICKHOUSE_USER`), `CLICKHOUSE_PASSWORD`, `CLICKHOUSE_SECURE` (TLS on by default). Oracle uses `ORACLE_HOST`, `ORACLE_PORT`, `ORACLE_SERVICE_NAME`, `ORACLE_USER`, `ORACLE_PASSWORD`. Do not put credentials in the mapping file.
@@ -51,6 +67,7 @@ product-rehearsal run company_catalog.json examples/scenario_en.json --model you
 
 - [NVIDIA Nemotron Personas](https://huggingface.co/datasets/nvidia/Nemotron-Personas-USA) and [NeMo Data Designer](https://github.com/NVIDIA-NeMo/DataDesigner): keep structured attributes separate from generated prose. The local data supplies the attributes; the US corpus does not provide priors, identities or missing values. No third-party records are redistributed or required.
 - [MatrAIx paper](https://arxiv.org/abs/2608.04205) and [source](https://github.com/MatrAIx-ai/MatrAIx-Persona-8B): scenario, agent and response-verifier boundaries. [Concordia](https://github.com/google-deepmind/concordia): carry conversation and environment state across turns. [Nubank/Snowglobe paper](https://arxiv.org/abs/2609.30137v1): isolate the simulated interaction from production actions. These are design references, not runtime dependencies.
+- [Promptfoo test case configuration](https://github.com/promptfoo/promptfoo/blob/main/site/docs/configuration/reference.md#test-case): compare variants on common inputs and validate against explicit response constraints. Product Rehearsal Lab uses a built-in local comparison and does not require Promptfoo.
 - The repository intentionally does not ship bank mappings, credentials, customer rows, raw conversations, or weights. There is no production action or A/B execution in this package.
 
 Original project files are available under the [MIT License](LICENSE). External models, datasets and optional packages are distributed separately under their respective terms.

@@ -6,10 +6,10 @@ from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
 
-from rehearsal import Lab, OllamaVoice, enable_utf8_stdout, load_catalog, run_panel
+from rehearsal import Lab, OllamaVoice, compare_panel, enable_utf8_stdout, load_catalog, run_panel
 
 
-def run(model, topic):
+def run(model, topic, compare=False):
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         catalog = {'segments':['digital_first','help_seeker'], 'topics':{
@@ -33,13 +33,14 @@ def run(model, topic):
             'onboarding':{'language':'en','question':'If the signup screen showed you the next step, how would you react?', 'conditions':{'next_step_visible':True,'human_help':False}, 'followups':[{'question':'Would a help button on the same screen change your mind?', 'changes':{'human_help':True}}]},
             'loyalty':{'language':'en','question':'Which loyalty reward would you choose: a discount on purchases or free delivery?', 'conditions':{'offer_a':'purchase discount','offer_b':'free delivery'}},
         }
-        scenario = scenarios[topic]
+        scenario = (json.loads(Path(__file__).with_name('examples').joinpath('comparison_en.json').read_text(encoding='utf-8'))
+                    if compare else scenarios[topic])
         lab = Lab(load_catalog(catalog_path))
         plan = lab.plan(scenario['question'])
         panel = lab.panel(plan, '2026-02-01', size=2)
         voice = OllamaVoice(model)
         digest = voice.verify()
-        result = run_panel(panel, scenario, voice)
+        result = compare_panel(panel, scenario, voice) if compare else run_panel(panel, scenario, voice)
         if voice.verify() != digest:
             raise RuntimeError('Model changed during demo')
         return {**result,'plan':plan,'model':model,'digest':digest}
@@ -50,13 +51,18 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--model', required=True)
     parser.add_argument('--topic', choices=['onboarding','loyalty'], default='onboarding')
+    parser.add_argument('--compare', action='store_true', help='Compare two independent signup conditions')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
-    result = run(args.model, args.topic)
+    if args.compare and args.topic != 'onboarding':
+        parser.error('--compare requires the onboarding topic')
+    result = run(args.model, args.topic, args.compare)
     body = json.dumps(result,ensure_ascii=False,indent=2)
     if args.output:
         with args.output.open('x',encoding='utf-8') as handle:
             handle.write(body + '\n')
     else:
         print(body)
-    raise SystemExit(0 if result['completed_agents'] == len(result['agents']) else 2)
+    complete = (result['coverage']['matched'] == result['coverage']['eligible'] if args.compare
+                else result['completed_agents'] == len(result['agents']))
+    raise SystemExit(0 if complete else 2)

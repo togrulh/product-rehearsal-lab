@@ -1,14 +1,16 @@
 import json
-from contextlib import closing
+from contextlib import closing, redirect_stdout
+from io import StringIO
 import os
 import sqlite3
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
-from rehearsal import Lab, LabError, OllamaVoice, discover_sources, load_catalog, run_panel
+from rehearsal import Lab, LabError, OllamaVoice, discover_sources, load_catalog, main, run_panel
 
 
 class DemoOutputTests(unittest.TestCase):
@@ -133,6 +135,35 @@ class LabTests(unittest.TestCase):
         self.assertEqual(result['agents'][0]['turns'][0]['status'], 'ok')
         self.assertEqual(result['agents'][0]['turns'][1]['status'], 'invalid_evidence')
         self.assertEqual(result['completed_agents'], 0)
+
+    def test_compare_cli_uses_the_catalog_and_keeps_partial_results_without_replies(self):
+        scenario = self.path.with_name('comparison.json')
+        scenario.write_text(json.dumps({
+            'language': 'en', 'question': 'Would you continue signup?', 'as_of': '2026-02-01',
+            'conditions': {'help': False},
+            'comparison': {'condition': 'help', 'value': True, 'choices': {'yes': 'Continue', 'no': 'Stop', 'unsure': 'Unsure'}},
+        }), encoding='utf-8')
+
+        class Voice:
+            def __init__(self, model, endpoint):
+                self.model = model
+
+            def verify(self):
+                return 'a' * 64
+
+            def __call__(self, payload):
+                choice = 'invalid' if payload['conditions']['help'] and payload['facts']['events.touches']['value'] == 8 else 'yes'
+                return {'choice': choice, 'answer': 'Fictional reply.', 'evidence_keys': []}
+
+        argv = ['product-rehearsal', 'compare', str(self.path), str(scenario), '--model', 'test:local']
+        with patch.object(sys, 'argv', argv), patch('rehearsal.OllamaVoice', Voice), redirect_stdout(StringIO()) as out:
+            self.assertEqual(main(), 2)
+        report = json.loads(out.getvalue())
+        self.assertEqual(report['coverage'], {'eligible': 2, 'baseline_valid': 2, 'variant_valid': 1, 'matched': 1})
+        self.assertEqual(report['failure_reasons'], {'baseline': {}, 'variant': {'invalid_choice': 1}})
+        self.assertEqual(report['digest'], 'a' * 64)
+        self.assertNotIn('pairs', report)
+        self.assertNotIn('private-id', out.getvalue())
 
 
 if __name__ == '__main__':

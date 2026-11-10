@@ -1,0 +1,17 @@
+{
+  "language": "en",
+  "as_of": "2026-02-01T00:00:00Z",
+  "panel_size": 8,
+  "seed": 17,
+  "question": "Would you continue signup now, or pause and come back later?",
+  "conditions": {"progress_visible": true, "support_button": false},
+  "comparison": {
+    "condition": "support_button",
+    "value": true,
+    "choices": {
+      "continue": "Continue signup now",
+      "pause": "Pause and come back later",
+      "unsure": "Not enough information to choose"
+    }
+  }
+}
