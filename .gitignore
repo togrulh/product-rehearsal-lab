@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.env
+.env.*
+*.db
+*.sqlite*
+company_catalog.json
+!examples/company_catalog.json
+*.private.json
+*_demo_az.json

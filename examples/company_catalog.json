@@ -1,0 +1,16 @@
+{
+  "segments": ["self_service", "needs_support"],
+  "discovery": {"clickhouse": ["simulation"], "oracle": ["SIMULATION"]},
+  "topics": {
+    "onboarding": {
+      "aliases": ["qeydiyyat", "onboarding", "регистрация"],
+      "anchor": "journey", "search_terms": ["journey", "onboarding", "account"]
+    }
+  },
+  "sources": [
+    {"id": "journey", "engine": "clickhouse", "view": "simulation.journey_features", "namespace": "company_v1", "topics": ["onboarding"],
+     "features": {"completed_steps": {"kind": "int", "meaning": "Number of signup steps completed before the observation date"}}},
+    {"id": "account", "engine": "oracle", "view": "SIMULATION.ACCOUNT_FEATURES", "namespace": "company_v1", "topics": ["onboarding"],
+     "features": {"existing_account": {"kind": "bool", "meaning": "Customer already had an account before the observation date"}}}
+  ]
+}

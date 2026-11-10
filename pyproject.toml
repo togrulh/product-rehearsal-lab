@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "product-rehearsal-lab"
+version = "0.1.0"
+description = "Local task-routed customer simulation over approved data sources"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = []
+
+[project.optional-dependencies]
+clickhouse = ["clickhouse-connect>=0.10,<1"]
+oracle = ["oracledb>=4.0,<5"]
+databases = ["clickhouse-connect>=0.10,<1", "oracledb>=4.0,<5"]
+
+[project.scripts]
+product-rehearsal = "rehearsal:main"
+
+[tool.setuptools]
+py-modules = ["rehearsal"]

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Virtual Community Studio"
+  short_description: "Build task-specific panels and simulate customer replies"
+  default_prompt: "Use $virtual-community-studio to build a task-specific panel and generate first-person customer replies."
