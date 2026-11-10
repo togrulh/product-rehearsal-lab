@@ -3,7 +3,7 @@
   "discovery": {"clickhouse": ["simulation"], "oracle": ["SIMULATION"]},
   "topics": {
     "onboarding": {
-      "aliases": ["qeydiyyat", "onboarding", "регистрация"],
+      "aliases": ["signup", "onboarding", "registration"],
       "anchor": "journey", "search_terms": ["journey", "onboarding", "account"]
     }
   },

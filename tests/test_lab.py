@@ -12,7 +12,7 @@ from rehearsal import Lab, LabError, OllamaVoice, discover_sources, load_catalog
 
 
 class DemoOutputTests(unittest.TestCase):
-    def test_az_demo_stdout_remains_utf8_under_legacy_code_page(self):
+    def test_demo_defaults_to_english_and_preserves_utf8(self):
         code = r'''
 import rehearsal, runpy, sys
 class LocalModelDouble:
@@ -21,8 +21,8 @@ class LocalModelDouble:
     def verify(self):
         return 'a' * 64
     def __call__(self, payload):
-        assert payload['language'] == 'az'
-        return {'answer':'\u018fla, n\u00f6vb\u0259ti add\u0131ma ke\u00e7\u0259r\u0259m.', 'evidence_keys':[]}
+        assert payload['language'] == 'en'
+        return {'answer':'I would continue \u2212 the next step is clear.', 'evidence_keys':[]}
 rehearsal.OllamaVoice = LocalModelDouble
 sys.argv = ['demo.py','--model','test:local']
 runpy.run_path('demo.py', run_name='__main__')
@@ -30,7 +30,7 @@ runpy.run_path('demo.py', run_name='__main__')
         run = subprocess.run([sys.executable,'-c',code], cwd=Path(__file__).resolve().parents[1], env={**os.environ,'PYTHONIOENCODING':'cp1252'}, capture_output=True, timeout=30)
         self.assertEqual(run.returncode,0,run.stderr.decode('ascii',errors='backslashreplace'))
         report = json.loads(run.stdout.decode('utf-8'))
-        self.assertEqual(report['agents'][0]['turns'][0]['answer'],'Əla, növbəti addıma keçərəm.')
+        self.assertEqual(report['agents'][0]['turns'][0]['answer'],'I would continue \u2212 the next step is clear.')
 
 
 class LabTests(unittest.TestCase):
@@ -46,7 +46,7 @@ class LabTests(unittest.TestCase):
                 db.execute(f'CREATE TABLE snapshot(profile_key, segment, {column}, event_at, available_at)')
                 db.executemany('INSERT INTO snapshot VALUES (?, ?, ?, ?, ?)', rows)
         self.path = root / 'catalog.json'
-        self.catalog = {'segments':['new','repeat'], 'topics': {'onboarding': {'aliases': ['qeydiyyat','onboarding'], 'anchor': 'events'}, 'savings': {'aliases': ['depozit'], 'anchor': 'core'}}, 'sources': [
+        self.catalog = {'segments':['new','repeat'], 'topics': {'onboarding': {'aliases': ['signup','onboarding'], 'anchor': 'events'}, 'savings': {'aliases': ['deposit'], 'anchor': 'core'}}, 'sources': [
             {'id': 'events', 'engine': 'sqlite', 'path': 'events.db', 'view': 'snapshot', 'namespace': 'tenant_v1', 'topics': ['onboarding'], 'features': {'touches': {'kind': 'int', 'meaning': 'Observed step count'}}},
             {'id': 'core', 'engine': 'sqlite', 'path': 'core.db', 'view': 'snapshot', 'namespace': 'tenant_v1', 'topics': ['onboarding','savings'], 'features': {'held': {'kind': 'bool', 'meaning': 'Existing contract'}}},
         ]}
@@ -60,7 +60,7 @@ class LabTests(unittest.TestCase):
 
     def panel(self):
         lab = self.lab()
-        return lab.panel(lab.plan('Qeydiyyatda növbəti addım'), '2026-02-01', 8, 3)
+        return lab.panel(lab.plan('Show the next signup step'), '2026-02-01', 8, 3)
 
     def test_routes_and_joins_without_future_rows_or_identifiers(self):
         panel = self.panel()
@@ -84,12 +84,12 @@ class LabTests(unittest.TestCase):
     def test_over_cap_does_not_return_arbitrary_partial_panel(self):
         lab = self.lab()
         with self.assertRaisesRegex(LabError, 'row_cap_exceeded:events'):
-            lab.panel(lab.plan('Qeydiyyat'), '2026-02-01', 2, max_rows=1)
+            lab.panel(lab.plan('Signup'), '2026-02-01', 2, max_rows=1)
 
     def test_metadata_discovery_requires_explicit_scope(self):
         lab = self.lab()
         with self.assertRaisesRegex(LabError, 'discovery_scope_or_terms_missing'):
-            discover_sources(lab.catalog, lab.plan('Qeydiyyat'))
+            discover_sources(lab.catalog, lab.plan('Signup'))
 
     def test_remote_and_cloud_models_fail_closed(self):
         with self.assertRaisesRegex(LabError, 'loopback_only'):
@@ -127,9 +127,9 @@ class LabTests(unittest.TestCase):
                 turn = len(payload['history'])
                 if turn:
                     assert payload['conditions'] == {'fee': 0, 'duration': 3}
-                    assert payload['history'][0]['answer'] == 'Mən əvvəlcə izaha baxaram.'
-                return {'answer': 'Mən əvvəlcə izaha baxaram.', 'evidence_keys': ['not_in_profile'] if turn else ['events.touches']}
-        result = run_panel(self.panel()[:1], {'language':'az', 'question':'Qeydiyyat necə olsun?', 'conditions':{'fee': 1, 'duration': 3}, 'followups':[{'question':'İndi necə?', 'changes':{'fee':0}}]}, Voice())
+                    assert payload['history'][0]['answer'] == 'I would read the explanation first.'
+                return {'answer': 'I would read the explanation first.', 'evidence_keys': ['not_in_profile'] if turn else ['events.touches']}
+        result = run_panel(self.panel()[:1], {'language':'en', 'question':'How should signup work?', 'conditions':{'fee': 1, 'duration': 3}, 'followups':[{'question':'What about now?', 'changes':{'fee':0}}]}, Voice())
         self.assertEqual(result['agents'][0]['turns'][0]['status'], 'ok')
         self.assertEqual(result['agents'][0]['turns'][1]['status'], 'invalid_evidence')
         self.assertEqual(result['completed_agents'], 0)

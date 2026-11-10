@@ -12,7 +12,7 @@ Clone the repository, then use an activated Python 3.12+ virtual environment:
 git clone https://github.com/togrulh/product-rehearsal-lab.git
 cd product-rehearsal-lab
 python -m pip install .
-product-rehearsal plan examples/company_catalog.json examples/scenario_az.json
+product-rehearsal plan examples/company_catalog.json examples/scenario_en.json
 ```
 
 The base CLI has no third-party Python runtime dependencies. Planning does not contact a database or model. To generate demo replies, run [Ollama](https://ollama.com/) locally with a model already installed, and pass its exact tag from `ollama list`. For example, [Qwen 3.5 27B](https://ollama.com/library/qwen3.5:27b) is available separately; check your hardware and the model terms before downloading. No external dataset, cloud key or database is needed for the fictional demo.
@@ -23,20 +23,20 @@ python demo.py --topic loyalty --model your-installed-model:tag
 python -m unittest discover -s tests -v
 ```
 
-`onboarding` exercises two sources and a follow-up changing just one condition. `loyalty` exercises a different pair of sources. `--output new-file.json` writes a UTF-8 demo receipt without overwriting anything. All demo rows are invented independently of any institution.
+Both demos use English. `onboarding` exercises two sources and a follow-up changing just one condition. `loyalty` exercises a different pair of sources. `--output new-file.json` writes a UTF-8 demo receipt without overwriting anything. All demo rows are invented independently of any institution.
 
 ## Connect your company
 
 1. Give dedicated read-only accounts access to approved aggregate feature views. Install the required driver extras with `python -m pip install '.[clickhouse]'`, `python -m pip install '.[oracle]'`, or `python -m pip install '.[databases]'` for both. Supply credentials via your secret manager at process start. ClickHouse uses `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`, `CLICKHOUSE_USERNAME` (or `CLICKHOUSE_USER`), `CLICKHOUSE_PASSWORD`, `CLICKHOUSE_SECURE` (TLS on by default). Oracle uses `ORACLE_HOST`, `ORACLE_PORT`, `ORACLE_SERVICE_NAME`, `ORACLE_USER`, `ORACLE_PASSWORD`. Do not put credentials in the mapping file.
-2. Copy `examples/company_catalog.json` to a **private** tenant mapping. Specify topics and AZ/RU/EN aliases, their population anchor, allowed sources, and optional schema scopes and discovery terms. Map a shared identity namespace only after validating the bridge. Other institutions can map their own CRM, event, order and support views; no bank-specific schema is required.
+2. Copy `examples/company_catalog.json` to a **private** tenant mapping. Specify topics and language-specific aliases, their population anchor, allowed sources, and optional schema scopes and discovery terms. Map a shared identity namespace only after validating the bridge. Other institutions can map their own CRM, event, order and support views; no bank-specific schema is required.
 3. Use `plan` to see the selected route, `discover` to search approved schemas for candidate objects, and `probe` to verify the mapped views and columns without retrieving customer rows. Discovered tables are never automatically added to an executable plan. Supply `topic` explicitly if the task is ambiguous or has no registered alias.
 4. Edit the example scenario, including its observation cutoff. Run it against the configured local model.
 
 ```text
-product-rehearsal plan company_catalog.json examples/scenario_az.json
-product-rehearsal discover company_catalog.json examples/scenario_az.json
-product-rehearsal probe company_catalog.json examples/scenario_az.json
-product-rehearsal run company_catalog.json examples/scenario_az.json --model your-installed-model:tag
+product-rehearsal plan company_catalog.json examples/scenario_en.json
+product-rehearsal discover company_catalog.json examples/scenario_en.json
+product-rehearsal probe company_catalog.json examples/scenario_en.json
+product-rehearsal run company_catalog.json examples/scenario_en.json --model your-installed-model:tag
 ```
 
 ### View contract

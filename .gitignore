@@ -11,4 +11,4 @@ dist/
 company_catalog.json
 !examples/company_catalog.json
 *.private.json
-*_demo_az.json
+*_demo_*.json

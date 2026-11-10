@@ -13,8 +13,8 @@ def run(model, topic):
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         catalog = {'segments':['digital_first','help_seeker'], 'topics':{
-            'onboarding':{'aliases':['qeydiyyat','onboarding','регистрация'],'anchor':'journey'},
-            'loyalty':{'aliases':['loyallıq','loyalty','лояльность'],'anchor':'purchases'},
+            'onboarding':{'aliases':['onboarding','signup','registration'],'anchor':'journey'},
+            'loyalty':{'aliases':['loyalty','rewards'],'anchor':'purchases'},
         }, 'sources':[]}
         for name, topics, definitions, values in [
             ('journey',['onboarding'],{'completed_steps':{'kind':'int','meaning':'Number of previously completed signup steps'},'help_requested':{'kind':'bool','meaning':'Previously requested help on the signup journey'}}, [(3,0),(1,1)]),
@@ -30,8 +30,8 @@ def run(model, topic):
         catalog_path = root / 'catalog.json'
         catalog_path.write_text(json.dumps(catalog), encoding='utf-8')
         scenarios = {
-            'onboarding':{'language':'az','question':'Qeydiyyatda növbəti addımı göstərsək, necə reaksiya verərdiniz?', 'conditions':{'next_step_visible':True,'human_help':False}, 'followups':[{'question':'Kömək düyməsi də olsa, fikriniz dəyişərmi?', 'changes':{'human_help':True}}]},
-            'loyalty':{'language':'az','question':'Loyallıq üçün iki seçimdən hansını istərdiniz: alışda endirim, yoxsa pulsuz çatdırılma?', 'conditions':{'offer_a':'alışda endirim','offer_b':'pulsuz çatdırılma'}},
+            'onboarding':{'language':'en','question':'If the signup screen showed you the next step, how would you react?', 'conditions':{'next_step_visible':True,'human_help':False}, 'followups':[{'question':'Would a help button on the same screen change your mind?', 'changes':{'human_help':True}}]},
+            'loyalty':{'language':'en','question':'Which loyalty reward would you choose: a discount on purchases or free delivery?', 'conditions':{'offer_a':'purchase discount','offer_b':'free delivery'}},
         }
         scenario = scenarios[topic]
         lab = Lab(load_catalog(catalog_path))
