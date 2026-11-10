@@ -9,15 +9,20 @@ from tempfile import TemporaryDirectory
 from rehearsal import Lab, OllamaVoice, compare_panel, enable_utf8_stdout, load_catalog, run_panel
 
 
-def run(model, topic, compare=False):
+def run(model, topic, compare=False, audit=False, memory_check=False):
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
         catalog = {'segments':['digital_first','help_seeker'], 'topics':{
-            'onboarding':{'aliases':['onboarding','signup','registration'],'anchor':'journey'},
+            'onboarding':{'aliases':['onboarding','signup','registration'],'anchor':'journey',
+                          'required_features':['journey.completed_steps'], 'memory_policy':{'max_features':3,'signals':{
+                              'journey.completed_steps':{'role':'recent_event','relevance':3,'half_life_days':14},
+                              'journey.help_requested':{'role':'recent_event','relevance':2,'half_life_days':14},
+                              'account.prior_app_use':{'role':'recent_event','relevance':1,'half_life_days':60},
+                          }}},
             'loyalty':{'aliases':['loyalty','rewards'],'anchor':'purchases'},
         }, 'sources':[]}
         for name, topics, definitions, values in [
-            ('journey',['onboarding'],{'completed_steps':{'kind':'int','meaning':'Number of previously completed signup steps'},'help_requested':{'kind':'bool','meaning':'Previously requested help on the signup journey'}}, [(3,0),(1,1)]),
+            ('journey',['onboarding'],{'completed_steps':{'kind':'int','meaning':'Number of previously completed signup steps','max_age_days':30},'help_requested':{'kind':'bool','meaning':'Whether help was requested in the previous signup attempt','max_age_days':30}}, [(3,0),(1,1)]),
             ('purchases',['loyalty'],{'online_orders':{'kind':'int','meaning':'Number of completed online orders in the observation period'}}, [(9,),(1,)]),
             ('account',['onboarding','loyalty'],{'prior_app_use':{'kind':'bool','meaning':'Used the mobile app on a previous occasion, unrelated to completion of the current signup'}}, [(1,),(0,)]),
         ]:
@@ -33,36 +38,46 @@ def run(model, topic, compare=False):
             'onboarding':{'language':'en','question':'If the signup screen showed you the next step, how would you react?', 'conditions':{'next_step_visible':True,'human_help':False}, 'followups':[{'question':'Would a help button on the same screen change your mind?', 'changes':{'human_help':True}}]},
             'loyalty':{'language':'en','question':'Which loyalty reward would you choose: a discount on purchases or free delivery?', 'conditions':{'offer_a':'purchase discount','offer_b':'free delivery'}},
         }
-        scenario = (json.loads(Path(__file__).with_name('examples').joinpath('comparison_en.json').read_text(encoding='utf-8'))
-                    if compare else scenarios[topic])
+        example = 'evidence_sensitivity_en.json' if memory_check else 'comparison_en.json' if compare else None
+        scenario = (json.loads(Path(__file__).with_name('examples').joinpath(example).read_text(encoding='utf-8'))
+                    if example else scenarios[topic])
         lab = Lab(load_catalog(catalog_path))
         plan = lab.plan(scenario['question'])
-        panel = lab.panel(plan, '2026-02-01', size=2)
+        panel, evidence = lab.panel_with_audit(plan, '2026-02-01', size=2)
+        if audit:
+            return {'mode':'evidence_audit','plan':plan,'as_of':'2026-02-01T00:00:00+00:00','evidence':evidence}
         voice = OllamaVoice(model)
         digest = voice.verify()
-        result = compare_panel(panel, scenario, voice) if compare else run_panel(panel, scenario, voice)
+        result = compare_panel(panel, scenario, voice) if compare or memory_check else run_panel(panel, scenario, voice)
         if voice.verify() != digest:
             raise RuntimeError('Model changed during demo')
-        return {**result,'plan':plan,'model':model,'digest':digest}
+        return {**result,'plan':plan,'model':model,'digest':digest,'evidence':evidence}
 
 
 if __name__ == '__main__':
     enable_utf8_stdout()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--model', required=True)
+    parser.add_argument('--model')
     parser.add_argument('--topic', choices=['onboarding','loyalty'], default='onboarding')
-    parser.add_argument('--compare', action='store_true', help='Compare two independent signup conditions')
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--compare', action='store_true', help='Compare two independent signup conditions')
+    modes.add_argument('--audit', action='store_true', help='Report fixture evidence coverage without a model')
+    modes.add_argument('--memory-check', action='store_true', help='Compare replies with and without a signup fact')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
-    if args.compare and args.topic != 'onboarding':
-        parser.error('--compare requires the onboarding topic')
-    result = run(args.model, args.topic, args.compare)
+    if (args.compare or args.memory_check) and args.topic != 'onboarding':
+        parser.error('--compare and --memory-check require the onboarding topic')
+    if not args.audit and not args.model:
+        parser.error('--model is required unless --audit is set')
+    result = run(args.model, args.topic, args.compare, args.audit, args.memory_check)
     body = json.dumps(result,ensure_ascii=False,indent=2)
     if args.output:
         with args.output.open('x',encoding='utf-8') as handle:
             handle.write(body + '\n')
     else:
         print(body)
-    complete = (result['coverage']['matched'] == result['coverage']['eligible'] if args.compare
+    if args.audit:
+        raise SystemExit(0)
+    complete = (result['coverage']['matched'] == result['coverage']['eligible'] if args.compare or args.memory_check
                 else result['completed_agents'] == len(result['agents']))
     raise SystemExit(0 if complete else 2)

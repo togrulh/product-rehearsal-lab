@@ -41,6 +41,19 @@ product-rehearsal compare company_catalog.json examples/comparison_en.json --mod
 
 Define a neutral question, one existing condition to change, and 3–8 distinct choice labels including `unsure`. Comparison scenarios cannot contain follow-ups. The CLI returns counts by default; add `--include-replies` for local inspection of synthetic replies and their cited feature keys. This is a sensitivity check on simulated choices, not a live A/B test or an estimate of customer behavior. Differences can reflect model variation, and a valid choice code does not certify its explanation.
 
+### Audit evidence and test whether it matters
+
+```text
+python demo.py --audit
+python demo.py --memory-check --model your-installed-model:tag
+product-rehearsal audit company_catalog.json examples/scenario_en.json
+product-rehearsal compare company_catalog.json examples/evidence_sensitivity_en.json --model your-installed-model:tag
+```
+
+The audit does not call a model. It reports counts of admitted, stale, null and unmatched features for the bounded anchor and the sampled panel, without exposing profile keys or values. A catalog may define a feature's `max_age_days`, topic-specific `required_features`, and an optional `memory_policy` that ranks relevant evidence under a feature budget. These policies are opt-in and apply to both normal runs and comparisons.
+
+For an evidence sensitivity check, keep the question and conditions unchanged and replace the comparison's `condition` and `value` with `omit_features`. Use a list of retrieved feature keys, or `"all"` for an empty-evidence control. The report states how many profiles were affected. A changed choice shows model sensitivity to the removed input in that run, not an effect on a real customer or proof the explanation is correct. See [evidence memory and validation](docs/evidence-memory.md) for the design, example signals, and validation protocol.
+
 ## Connect your company
 
 1. Give dedicated read-only accounts access to approved aggregate feature views. Install the required driver extras with `python -m pip install '.[clickhouse]'`, `python -m pip install '.[oracle]'`, or `python -m pip install '.[databases]'` for both. Supply credentials via your secret manager at process start. ClickHouse uses `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`, `CLICKHOUSE_USERNAME` (or `CLICKHOUSE_USER`), `CLICKHOUSE_PASSWORD`, `CLICKHOUSE_SECURE` (TLS on by default). Oracle uses `ORACLE_HOST`, `ORACLE_PORT`, `ORACLE_SERVICE_NAME`, `ORACLE_USER`, `ORACLE_PASSWORD`. Do not put credentials in the mapping file.

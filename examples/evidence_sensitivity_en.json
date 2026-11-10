@@ -1,0 +1,15 @@
+{
+  "language": "en",
+  "as_of": "2026-02-01T00:00:00Z",
+  "panel_size": 8,
+  "seed": 17,
+  "question": "During the previous signup attempt, did you ask for help?",
+  "comparison": {
+    "omit_features": ["journey.help_requested"],
+    "choices": {
+      "asked": "I asked for help",
+      "not_asked": "I did not ask for help",
+      "unsure": "I do not have enough information to say"
+    }
+  }
+}

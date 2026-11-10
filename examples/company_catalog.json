@@ -4,12 +4,24 @@
   "topics": {
     "onboarding": {
       "aliases": ["signup", "onboarding", "registration"],
-      "anchor": "journey", "search_terms": ["journey", "onboarding", "account"]
+      "anchor": "journey", "search_terms": ["journey", "onboarding", "account"],
+      "required_features": ["journey.completed_steps"],
+      "memory_policy": {
+        "max_features": 3,
+        "signals": {
+          "journey.completed_steps": {"role": "recent_event", "relevance": 3, "half_life_days": 14},
+          "journey.help_requested": {"role": "recent_event", "relevance": 2, "half_life_days": 14},
+          "account.existing_account": {"role": "current_state", "relevance": 1, "half_life_days": null}
+        }
+      }
     }
   },
   "sources": [
     {"id": "journey", "engine": "clickhouse", "view": "simulation.journey_features", "namespace": "company_v1", "topics": ["onboarding"],
-     "features": {"completed_steps": {"kind": "int", "meaning": "Number of signup steps completed before the observation date"}}},
+     "features": {
+       "completed_steps": {"kind": "int", "meaning": "Number of signup steps completed in the previous attempt", "max_age_days": 30},
+       "help_requested": {"kind": "bool", "meaning": "Whether help was requested during the previous signup attempt", "max_age_days": 30}
+     }},
     {"id": "account", "engine": "oracle", "view": "SIMULATION.ACCOUNT_FEATURES", "namespace": "company_v1", "topics": ["onboarding"],
      "features": {"existing_account": {"kind": "bool", "meaning": "Customer already had an account before the observation date"}}}
   ]

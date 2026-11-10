@@ -165,6 +165,91 @@ class LabTests(unittest.TestCase):
         self.assertNotIn('pairs', report)
         self.assertNotIn('private-id', out.getvalue())
 
+    def test_point_in_time_evidence_freshness_and_required_signal(self):
+        self.catalog['sources'][1]['features']['held']['max_age_days'] = 30
+        self.catalog['topics']['onboarding']['required_features'] = ['core.held']
+        self.write_catalog()
+        lab = self.lab()
+        plan = lab.plan('Signup')
+
+        # Feb 1 sees Jan 1's observation, not a future revision of another source.
+        panel, audit = lab.panel_with_audit(plan, '2026-02-01', size=8)
+        self.assertEqual(panel, [])
+        self.assertEqual(audit['profiles'], {'anchor': 2, 'no_evidence': 0, 'missing_required': 2, 'eligible': 0, 'sampled': 0})
+        self.assertEqual(audit['features']['core.held']['anchor'], {'admitted': 0, 'stale': 1, 'null': 0, 'unmatched': 1})
+        with self.assertRaisesRegex(LabError, 'empty_eligible_panel'):
+            lab.panel(plan, '2026-02-01')
+
+        # The observation exactly 30 days before the cutoff is still admitted.
+        panel, audit = lab.panel_with_audit(plan, '2026-01-31', size=8)
+        self.assertEqual(len(panel), 1)
+        self.assertTrue(panel[0]['facts']['core.held']['value'])
+        self.assertEqual(audit['features']['core.held']['sampled'], {'admitted': 1, 'stale': 0, 'null': 0, 'unmatched': 0})
+        self.assertNotIn('private-id', json.dumps(audit))
+
+    def test_explicit_zero_and_null_are_not_conflated(self):
+        with closing(sqlite3.connect(self.path.parent / 'events.db')) as db, db:
+            db.execute("UPDATE snapshot SET touches=0 WHERE profile_key='private-id-1' AND available_at='2026-01-02'")
+            db.execute("UPDATE snapshot SET touches=NULL WHERE profile_key='private-id-2'")
+        lab = self.lab()
+        panel, audit = lab.panel_with_audit(lab.plan('Signup'), '2026-02-01', size=8)
+        self.assertEqual(panel[0]['facts']['events.touches']['value'], 0)
+        self.assertEqual(audit['features']['events.touches']['anchor'], {'admitted': 1, 'stale': 0, 'null': 1, 'unmatched': 0})
+        self.assertEqual(audit['profiles']['no_evidence'], 1)
+
+    def test_evidence_policy_cannot_reference_unmapped_signals(self):
+        self.catalog['topics']['savings']['required_features'] = ['events.touches']
+        self.write_catalog()
+        with self.assertRaisesRegex(LabError, 'invalid_required_features'):
+            self.lab()
+        del self.catalog['topics']['savings']['required_features']
+        self.catalog['sources'][0]['features']['touches']['max_age_days'] = True
+        self.write_catalog()
+        with self.assertRaisesRegex(LabError, 'invalid_max_age_days'):
+            self.lab()
+
+    def test_audit_cli_is_model_free_and_reports_empty_coverage(self):
+        self.catalog['topics']['onboarding']['required_features'] = ['core.held']
+        self.catalog['sources'][1]['features']['held']['max_age_days'] = 30
+        self.write_catalog()
+        scenario = self.path.with_name('audit.json')
+        scenario.write_text(json.dumps({'language': 'en', 'question': 'Signup?', 'as_of': '2026-02-01'}), encoding='utf-8')
+        with patch.object(sys, 'argv', ['rehearsal', 'audit', str(self.path), str(scenario)]), \
+             patch('rehearsal.OllamaVoice', side_effect=AssertionError('model must not run')), redirect_stdout(StringIO()) as out:
+            self.assertEqual(main(), 0)
+        report = json.loads(out.getvalue())
+        self.assertEqual(report['mode'], 'evidence_audit')
+        self.assertEqual(report['evidence']['profiles']['eligible'], 0)
+        self.assertNotIn('private-id', out.getvalue())
+
+    def test_memory_ranks_by_task_weight_and_age_without_dropping_required_facts(self):
+        self.catalog['topics']['onboarding']['memory_policy'] = {'max_features': 1, 'signals': {
+            'events.touches': {'role': 'recent_event', 'relevance': 2, 'half_life_days': 7},
+            'core.held': {'role': 'current_state', 'relevance': 1, 'half_life_days': None},
+        }}
+        self.write_catalog()
+        lab = self.lab()
+        plan = lab.plan('Signup')
+        panel, audit = lab.panel_with_audit(plan, '2026-02-01', size=8)
+        self.assertEqual(list(panel[0]['facts']), ['core.held'])
+        self.assertEqual(panel[0]['facts']['core.held']['memory_role'], 'current_state')
+        self.assertEqual(audit['memory']['sampled_retrieved'], {'events.touches': 1, 'core.held': 1})
+
+        self.catalog['topics']['onboarding']['required_features'] = ['events.touches']
+        self.write_catalog()
+        panel = self.panel()
+        self.assertEqual(list(panel[0]['facts']), ['events.touches'])
+
+    def test_required_signals_must_fit_the_memory_budget(self):
+        topic = self.catalog['topics']['onboarding']
+        topic['required_features'] = ['events.touches', 'core.held']
+        topic['memory_policy'] = {'max_features': 1, 'signals': {
+            name: {'role': 'habit', 'relevance': 1, 'half_life_days': 30} for name in topic['required_features']
+        }}
+        self.write_catalog()
+        with self.assertRaisesRegex(LabError, 'invalid_memory_policy'):
+            self.lab()
+
 
 if __name__ == '__main__':
     unittest.main()

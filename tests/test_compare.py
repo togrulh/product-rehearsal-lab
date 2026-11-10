@@ -75,3 +75,22 @@ class PairedComparisonTests(unittest.TestCase):
         self.assertIn('choice', body['format']['required'])
         self.assertEqual(body['options']['temperature'], 0)
         self.assertEqual(result['choice'], 'unsure')
+
+    def test_evidence_ablation_keeps_conditions_and_never_passes_omitted_values(self):
+        self.scenario['comparison'] = {'omit_features': 'all', 'choices': SCENARIO['comparison']['choices']}
+        calls = []
+
+        def voice(payload):
+            self.assertEqual(payload['conditions'], self.scenario['conditions'])
+            self.assertEqual(payload['history'], [])
+            calls.append(bool(payload['facts']))
+            return {'answer': 'Fictional reply.', 'choice': 'continue' if payload['facts'] else 'unsure', 'evidence_keys': list(payload['facts'])}
+
+        report = rehearsal.compare_panel(self.panel, self.scenario, voice)
+        self.assertEqual(calls, [True, False, False, True, True, False])
+        self.assertEqual(report['mode'], 'evidence_sensitivity')
+        self.assertEqual(report['comparison']['profiles_affected'], 3)
+        self.assertEqual(report['transitions'], [{'baseline': 'continue', 'variant': 'unsure', 'count': 3}])
+        self.scenario['comparison']['omit_features'] = ['journey.absent']
+        with self.assertRaisesRegex(rehearsal.LabError, 'evidence_omission_not_in_panel'):
+            rehearsal.compare_panel(self.panel, self.scenario, lambda _: self.fail('model called'))
